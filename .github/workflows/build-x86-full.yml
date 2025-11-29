@@ -1,0 +1,65 @@
+name: Build OpenWrt x86_64 Full
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set Build Date
+      id: build_date
+      run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib \
+        gettext git libncurses5-dev libssl-dev python3 python3-distutils rsync unzip \
+        zlib1g-dev file curl
+
+    - name: Clone Official OpenWrt
+      run: |
+        git clone https://github.com/openwrt/openwrt.git openwrt
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Apply config.seed
+      run: cp config.seed openwrt/.config
+
+    - name: diy.sh custom mods
+      run: |
+        chmod +x diy.sh
+        ./diy.sh || true
+
+    - name: Inject Build Date into Version
+      run: |
+        cd openwrt
+        DATE=${{ steps.build_date.outputs.date }}
+        echo ">>> Setting version to include date: $DATE"
+        sed -i "s/OpenWrt/OpenWrt-$DATE/g" include/version.mk
+        echo "Firmware Build Date: $DATE" > package/base-files/files/etc/openwrt_build_date
+
+    - name: Download Packages
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+
+    - name: Build
+      run: |
+        cd openwrt
+        make -j$(nproc) || make -j1 V=s
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: OpenWrt-x86_64-Full-${{ steps.build_date.outputs.date }}
+        path: openwrt/bin/
