@@ -2,104 +2,555 @@ name: 编译 OpenWrt x86_64 Full
 
 on:
   workflow_dispatch:
+
+  # GitHub Actions 使用 UTC 时间
+  # 这里是每天 UTC 00:00，也就是北京时间/新加坡时间 08:00
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build OpenWrt x86_64
+    runs-on: ubuntu-24.04
 
     steps:
-    - name: 📥 下载仓库源码
-      uses: actions/checkout@v4
 
-    - name: 🕒 设置编译日期
-      id: build_date
-      run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+      # ============================================================
+      # 1. 检出你的配置仓库
+      # ============================================================
+      - name: 📥 检出配置仓库
+        uses: actions/checkout@v4
 
-    - name: 🧹 释放磁盘空间
-      run: |
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/ghc
-        sudo rm -rf /usr/lib/jvm
-        sudo docker system prune -af || true
-        sudo apt-get clean
 
-    - name: 💾 增加 Swap（防止 Rust 等内存不足）
-      run: |
-        sudo fallocate -l 4G /swapfile
-        sudo chmod 600 /swapfile
-        sudo mkswap /swapfile
-        sudo swapon /swapfile
+      # ============================================================
+      # 2. 设置时间
+      # ============================================================
+      - name: 🕒 设置编译时间
+        run: |
+          echo "BUILD_DATE=$(date '+%Y%m%d-%H%M%S')" >> "$GITHUB_ENV"
+          echo "BUILD_DATE_SHORT=$(date '+%Y%m%d')" >> "$GITHUB_ENV"
 
-    - name: 📦 移动编译目录到 /mnt
-      run: |
-        sudo mkdir -p /mnt/openwrt
-        sudo chown $USER:$USER /mnt/openwrt
-        cp -rf ./* /mnt/openwrt/
+          echo "当前时间："
+          date
 
-    - name: 🛠️ 安装编译依赖
-      run: |
-        sudo apt update
-        sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib \
-        gettext git libncurses5-dev libssl-dev python3 python3-venv python3-pip \
-        rsync unzip zlib1g-dev file curl
 
-    - name: 🌐 克隆官方 OpenWrt 源码
-      working-directory: /mnt/openwrt
-      run: |
-        git clone https://github.com/openwrt/openwrt.git src
-        cd src
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+      # ============================================================
+      # 3. 清理磁盘空间
+      # ============================================================
+      - name: 🧹 清理磁盘空间
+        run: |
+          echo "清理之前："
+          df -h
 
-    - name: ⚙️ 应用 config.seed
-      working-directory: /mnt/openwrt
-      run: |
-        if [ -f config.seed ]; then
-            cp config.seed src/.config
-        else
-            echo "⚠️ 未找到 config.seed，继续使用默认配置"
-        fi
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/lib/node_modules
 
-    - name: 🔧 执行 diy.sh 自定义脚本
-      working-directory: /mnt/openwrt
-      run: |
-        if [ -f diy.sh ]; then
-            chmod +x diy.sh
-            ./diy.sh || true
-        else
-            echo "⚠️ 未找到 diy.sh，跳过"
-        fi
+          docker system prune -af || true
 
-    - name: 🏷️ 注入编译日期进版本号
-      working-directory: /mnt/openwrt/src
-      run: |
-        DATE=${{ steps.build_date.outputs.date }}
-        echo ">>> OpenWrt Version: $DATE"
-        sed -i "s/OpenWrt/OpenWrt-$DATE/g" include/version.mk
-        echo "$DATE" > package/base-files/files/etc/openwrt_build_date
+          echo "清理之后："
+          df -h
 
-    - name: 📦 下载依赖包
-      working-directory: /mnt/openwrt/src
-      run: |
-        make defconfig
-        make download -j8
 
-    - name: 🏗️ 编译固件
-      working-directory: /mnt/openwrt/src
-      run: |
-        make -j$(nproc) || make -j1 V=s
+      # ============================================================
+      # 4. 创建 4GB Swap
+      # ============================================================
+      - name: 💾 创建 4GB Swap
+        run: |
+          if swapon --show | grep -q .; then
+            echo "系统已经存在 Swap："
+            swapon --show
+          else
+            echo "创建 4GB Swap..."
 
-    - name: 📁 整理输出固件
-      working-directory: /mnt/openwrt
-      run: |
-        mkdir -p output
-        cp -rf src/bin/targets/*/*/* output/ || true
+            sudo fallocate -l 4G /swapfile
 
-    - name: 📤 上传固件 Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: OpenWrt-x86_64-Full-${{ steps.build_date.outputs.date }}
-        path: /mnt/openwrt/output
+            sudo chmod 600 /swapfile
+
+            sudo mkswap /swapfile
+
+            sudo swapon /swapfile
+
+            echo "Swap 创建完成："
+            swapon --show
+          fi
+
+          echo
+          free -h
+
+
+      # ============================================================
+      # 5. 安装编译依赖
+      # ============================================================
+      - name: 📦 安装编译依赖
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc-multilib \
+            g++-multilib \
+            gettext \
+            git \
+            libncurses5-dev \
+            libncursesw5-dev \
+            libssl-dev \
+            python3 \
+            python3-distutils \
+            python3-setuptools \
+            rsync \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            curl \
+            jq \
+            time \
+            xsltproc \
+            swig \
+            libelf-dev \
+            ccache \
+            xz-utils \
+            zip \
+            zstd
+
+          sudo apt-get clean
+
+          echo
+          echo "编译工具版本："
+          gcc --version | head -n 1
+          clang --version | head -n 1
+          python3 --version
+          git --version
+
+
+      # ============================================================
+      # 6. 创建工作目录
+      # ============================================================
+      - name: 📁 创建 OpenWrt 工作目录
+        run: |
+          sudo mkdir -p /mnt/openwrt
+
+          sudo chown -R "$USER:$USER" /mnt/openwrt
+
+          echo "工作目录："
+          ls -la /mnt/openwrt
+
+
+      # ============================================================
+      # 7. 将当前仓库复制到工作目录
+      #
+      # 你的仓库结构建议：
+      #
+      # ├── config.seed
+      # ├── diy.sh
+      # └── .github/
+      #
+      # config.seed 和 diy.sh 位于仓库根目录
+      # ============================================================
+      - name: 📋 复制编译配置
+        run: |
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='src/' \
+            ./ \
+            /mnt/openwrt/
+
+          echo "配置文件："
+          ls -lah /mnt/openwrt
+
+          if [ ! -f /mnt/openwrt/config.seed ]; then
+            echo "❌ 找不到 config.seed"
+            exit 1
+          fi
+
+          if [ ! -f /mnt/openwrt/diy.sh ]; then
+            echo "❌ 找不到 diy.sh"
+            exit 1
+          fi
+
+          echo
+          echo "✅ 找到 config.seed"
+          echo "✅ 找到 diy.sh"
+
+
+      # ============================================================
+      # 8. 获取 OpenWrt 官方最新稳定版
+      #
+      # GitHub API 的 releases/latest 不包含 prerelease
+      # 因此这里获取的是正式稳定版本
+      #
+      # 当前预计：
+      # v25.12.5
+      #
+      # 将来发布新版本后会自动跟随
+      # ============================================================
+      - name: 🔎 获取最新稳定版 OpenWrt
+        id: openwrt_release
+        working-directory: /mnt/openwrt
+        run: |
+          set -e
+
+          echo "正在查询 OpenWrt 官方最新稳定版本..."
+
+          OPENWRT_TAG=$(curl -fsSL \
+            https://api.github.com/repos/openwrt/openwrt/releases/latest \
+            | python3 -c '
+          import sys
+          import json
+          data = json.load(sys.stdin)
+          print(data["tag_name"])
+          ')
+
+          if [ -z "$OPENWRT_TAG" ] || [ "$OPENWRT_TAG" = "null" ]; then
+            echo "❌ 无法获取 OpenWrt 最新稳定版本"
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "OpenWrt 最新稳定版本：$OPENWRT_TAG"
+          echo "========================================"
+
+          echo "OPENWRT_TAG=$OPENWRT_TAG" >> "$GITHUB_ENV"
+          echo "tag=$OPENWRT_TAG" >> "$GITHUB_OUTPUT"
+
+
+      # ============================================================
+      # 9. 克隆最新稳定版 OpenWrt
+      # ============================================================
+      - name: 🌐 克隆 OpenWrt 最新稳定版
+        working-directory: /mnt/openwrt
+        run: |
+          set -e
+
+          echo "正在克隆 OpenWrt $OPENWRT_TAG ..."
+
+          git clone \
+            --depth=1 \
+            --branch "$OPENWRT_TAG" \
+            https://github.com/openwrt/openwrt.git \
+            src
+
+          cd src
+
+          echo
+          echo "========================================"
+          echo "OpenWrt 源码版本"
+          echo "========================================"
+
+          git describe --tags --always
+
+          echo
+          echo "Git Commit:"
+          git rev-parse HEAD
+
+          echo
+          echo "========================================"
+
+
+      # ============================================================
+      # 10. 更新 feeds
+      # ============================================================
+      - name: 📡 更新 OpenWrt feeds
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          ./scripts/feeds update -a
+
+          ./scripts/feeds install -a
+
+          echo
+          echo "Feeds 更新完成"
+
+
+      # ============================================================
+      # 11. 使用 config.seed
+      # ============================================================
+      - name: ⚙️ 导入 config.seed
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          cp /mnt/openwrt/config.seed .config
+
+          echo
+          echo "========================================"
+          echo "config.seed 已导入"
+          echo "========================================"
+
+          wc -l .config
+
+
+      # ============================================================
+      # 12. 执行 diy.sh
+      #
+      # 注意：
+      # 不再使用 diy.sh || true
+      #
+      # diy.sh 出错直接终止编译
+      # ============================================================
+      - name: 🛠️ 执行 DIY 配置
+        working-directory: /mnt/openwrt
+        run: |
+          set -e
+
+          chmod +x diy.sh
+
+          echo "========================================"
+          echo "开始执行 diy.sh"
+          echo "OpenWrt: $OPENWRT_TAG"
+          echo "========================================"
+
+          ./diy.sh
+
+          echo
+          echo "✅ diy.sh 执行完成"
+
+
+      # ============================================================
+      # 13. 写入编译版本信息
+      # ============================================================
+      - name: 📝 写入编译版本信息
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          echo "OpenWrt版本: $OPENWRT_TAG" > /mnt/openwrt/build-info.txt
+          echo "编译时间: $BUILD_DATE" >> /mnt/openwrt/build-info.txt
+          echo "Commit: $(git rev-parse HEAD)" >> /mnt/openwrt/build-info.txt
+
+          echo
+          cat /mnt/openwrt/build-info.txt
+
+
+      # ============================================================
+      # 14. 生成默认配置
+      # ============================================================
+      - name: ⚙️ 生成最终配置
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          make defconfig
+
+          echo
+          echo "========================================"
+          echo "最终 .config"
+          echo "========================================"
+
+          cp .config /mnt/openwrt/final.config
+
+          echo "配置大小："
+          wc -l .config
+
+
+      # ============================================================
+      # 15. 下载源码包
+      # ============================================================
+      - name: 📥 下载源码包
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          make download -j$(nproc) V=s
+
+
+      # ============================================================
+      # 16. 编译 OpenWrt
+      #
+      # 多线程失败：
+      # 自动使用单线程详细日志重新编译
+      # ============================================================
+      - name: 🔨 编译 OpenWrt x86_64
+        working-directory: /mnt/openwrt/src
+        env:
+          FORCE_UNSAFE_CONFIGURE: 1
+        run: |
+          set -o pipefail
+
+          echo "========================================"
+          echo "开始编译 OpenWrt"
+          echo "版本：$OPENWRT_TAG"
+          echo "架构：x86_64"
+          echo "CPU：$(nproc) 核"
+          echo "========================================"
+
+          START_TIME=$(date +%s)
+
+          if make -j$(nproc); then
+            echo
+            echo "========================================"
+            echo "✅ 多线程编译成功"
+            echo "========================================"
+          else
+            echo
+            echo "========================================"
+            echo "⚠️ 多线程编译失败"
+            echo "开始使用单线程详细日志重新编译"
+            echo "========================================"
+
+            make -j1 V=s
+          fi
+
+          END_TIME=$(date +%s)
+          BUILD_TIME=$((END_TIME - START_TIME))
+
+          echo
+          echo "========================================"
+          echo "编译完成"
+          echo "耗时：${BUILD_TIME} 秒"
+          echo "========================================"
+
+
+      # ============================================================
+      # 17. 显示固件目录
+      # ============================================================
+      - name: 📂 检查编译结果
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          OUTPUT_DIR="bin/targets/x86/64"
+
+          if [ ! -d "$OUTPUT_DIR" ]; then
+            echo "❌ 找不到 x86_64 固件目录"
+            exit 1
+          fi
+
+          echo
+          echo "========================================"
+          echo "x86_64 固件"
+          echo "========================================"
+
+          ls -lah "$OUTPUT_DIR"
+
+          echo
+          echo "文件数量："
+          find "$OUTPUT_DIR" -type f | wc -l
+
+
+      # ============================================================
+      # 18. 整理完整固件
+      #
+      # 保留：
+      # - EFI 镜像
+      # - combined 镜像
+      # - squashfs
+      # - ext4
+      # - kernel
+      # - rootfs
+      # - manifest
+      # - sha256sums
+      # - config
+      # ============================================================
+      - name: 📦 整理完整 x86_64 固件
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          OUTPUT_DIR="bin/targets/x86/64"
+          FINAL_DIR="/mnt/openwrt/output/firmware"
+
+          mkdir -p "$FINAL_DIR"
+
+          echo "复制固件..."
+
+          cp -a "$OUTPUT_DIR"/. "$FINAL_DIR"/
+
+          echo
+          echo "复制最终配置..."
+
+          cp /mnt/openwrt/final.config \
+            "$FINAL_DIR/config"
+
+          cp /mnt/openwrt/build-info.txt \
+            "$FINAL_DIR/build-info.txt"
+
+          echo
+          echo "========================================"
+          echo "最终固件目录"
+          echo "========================================"
+
+          ls -lah "$FINAL_DIR"
+
+
+      # ============================================================
+      # 19. 生成 SHA256
+      # ============================================================
+      - name: 🔐 生成 SHA256 校验
+        working-directory: /mnt/openwrt/output/firmware
+        run: |
+          set -e
+
+          rm -f SHA256SUMS
+
+          find . -maxdepth 1 -type f \
+            ! -name 'SHA256SUMS' \
+            -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+          echo
+          echo "========================================"
+          echo "SHA256"
+          echo "========================================"
+
+          cat SHA256SUMS
+
+
+      # ============================================================
+      # 20. 显示最终结果
+      # ============================================================
+      - name: 📊 编译结果统计
+        working-directory: /mnt/openwrt/output/firmware
+        run: |
+          echo
+          echo "========================================"
+          echo "OpenWrt 编译完成"
+          echo "========================================"
+
+          echo "版本：$OPENWRT_TAG"
+          echo "编译时间：$BUILD_DATE"
+          echo "架构：x86_64"
+
+          echo
+          echo "固件文件："
+          find . -maxdepth 1 -type f \
+            -printf '%f\t%k KB\n' \
+            | sort
+
+          echo
+          echo "总大小："
+          du -sh .
+
+          echo
+          echo "========================================"
+
+
+      # ============================================================
+      # 21. 上传 GitHub Actions Artifact
+      # ============================================================
+      - name: 📤 上传 x86_64 完整固件
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-x86_64-${{ env.OPENWRT_TAG }}-${{ env.BUILD_DATE_SHORT }}
+          path: /mnt/openwrt/output/firmware/
+          if-no-files-found: error
+          retention-days: 30
