@@ -2,7 +2,16 @@
 
 set -e
 
-OPENWRT_DIR="$(cd "$(dirname "$0")/src" && pwd)"
+if [ -n "$OPENWRT_DIR" ] && [ -d "$OPENWRT_DIR" ]; then
+  :
+elif [ -d "$(dirname "$0")/src" ]; then
+  OPENWRT_DIR="$(cd "$(dirname "$0")/src" && pwd)"
+elif [ -d "$(dirname "$0")/openwrt" ]; then
+  OPENWRT_DIR="$(cd "$(dirname "$0")/openwrt" && pwd)"
+else
+  echo "❌ 找不到 OpenWrt 源码目录"
+  exit 1
+fi
 
 echo "OpenWrt source: $OPENWRT_DIR"
 
