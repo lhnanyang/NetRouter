@@ -9,7 +9,7 @@ on:
     - cron: '0 0 * * *'
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   TZ: Asia/Shanghai
@@ -567,3 +567,23 @@ jobs:
           path: /mnt/openwrt/output/firmware/
           if-no-files-found: error
           retention-days: 30
+            # ============================================================
+      # 22. 发布到 GitHub Releases
+      # ============================================================
+      - name: 🚀 发布到 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: OpenWrt-x86_64-${{ steps.openwrt_release.outputs.tag }}-${{ env.BUILD_DATE }}
+          name: OpenWrt x86_64 ${{ steps.openwrt_release.outputs.tag }} (${{ env.BUILD_DATE }})
+          body: |
+            OpenWrt 版本：${{ steps.openwrt_release.outputs.tag }}
+            编译时间：${{ env.BUILD_DATE }}
+            架构：x86_64
+            仓库：${{ github.repository }}
+            Commit：${{ github.sha }}
+          files: |
+            /mnt/openwrt/output/firmware/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
