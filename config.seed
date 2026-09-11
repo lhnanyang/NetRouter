@@ -17,6 +17,11 @@ CONFIG_PACKAGE_luci-ssl-openssl=y
 CONFIG_PACKAGE_luci-theme-argon=y
 CONFIG_PACKAGE_luci-app-argon-config=y
 
+# ============================================================
+# iStore 应用商店
+# ============================================================
+
+CONFIG_PACKAGE_luci-app-store=y
 
 # ============================================================
 # 第三方代理插件全部关闭
