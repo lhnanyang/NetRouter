@@ -505,27 +505,119 @@ jobs:
 
 
       # ============================================================
-      # 19. 生成 SHA256
+      # 19. 生成 SHA256 校验
+      #
+      # 说明：
+      # OpenWrt 编译时已自带小写 sha256sums
+      # 这里统一保留小写版本，避免和自定义大写版本冲突
       # ============================================================
       - name: 🔐 生成 SHA256 校验
         working-directory: /mnt/openwrt/output/firmware
         run: |
           set -e
 
-          rm -f SHA256SUMS
+          echo "========================================"
+          echo "生成 SHA256 校验"
+          echo "========================================"
 
+          # 先删除可能存在的两种命名，避免大小写冲突
+          rm -f SHA256SUMS sha256sums
+
+          # 重新生成小写 sha256sums（与 OpenWrt 官方命名保持一致）
           find . -maxdepth 1 -type f \
-            ! -name 'SHA256SUMS' \
+            ! -name 'sha256sums' \
             -print0 \
             | sort -z \
-            | xargs -0 sha256sum > SHA256SUMS
+            | xargs -0 sha256sum > sha256sums
 
           echo
           echo "========================================"
           echo "SHA256"
           echo "========================================"
 
-          cat SHA256SUMS
+          cat sha256sums
+
+
+      # ============================================================
+      # 19.5 发布前检查：检测并清理大小写冲突文件
+      #
+      # 说明：
+      # GitHub Release 的 asset 名大小写不敏感
+      # 例如 sha256sums 和 SHA256SUMS 会被视为同名文件
+      # 上传时会报 already_exists
+      #
+      # 这里做兜底检查，自动保留小写版本，删除大写版本
+      # ============================================================
+      - name: 🔍 发布前检查文件名冲突
+        working-directory: /mnt/openwrt/output/firmware
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "发布前文件检查"
+          echo "========================================"
+
+          echo
+          echo "当前文件列表："
+          ls -la
+
+          echo
+          echo "检查大小写冲突（GitHub Release 大小写不敏感）："
+
+          # 找出忽略大小写后重复的文件名
+          DUPES=$(find . -maxdepth 1 -type f -printf '%f\n' \
+            | tr '[:upper:]' '[:lower:]' \
+            | sort \
+            | uniq -d)
+
+          if [ -z "$DUPES" ]; then
+            echo "✅ 未发现大小写冲突"
+          else
+            echo "⚠️ 发现以下冲突（忽略大小写后重复）："
+            echo "$DUPES"
+
+            echo
+            echo "开始自动清理，优先保留纯小写版本..."
+
+            for name in $DUPES; do
+              # 找出这个冲突名对应的所有真实文件
+              MATCHES=$(find . -maxdepth 1 -type f -printf '%f\n' \
+                | grep -i "^${name}$" || true)
+
+              echo "冲突文件组：$MATCHES"
+
+              # 优先保留纯小写版本
+              KEEP=""
+              for f in $MATCHES; do
+                if [ "$f" = "$name" ]; then
+                  KEEP="$f"
+                fi
+              done
+
+              # 如果没有纯小写版本，就保留第一个
+              if [ -z "$KEEP" ]; then
+                KEEP=$(echo "$MATCHES" | head -n 1)
+              fi
+
+              echo "  保留：$KEEP"
+
+              for f in $MATCHES; do
+                if [ "$f" != "$KEEP" ]; then
+                  echo "  删除：$f"
+                  rm -f "$f"
+                fi
+              done
+            done
+
+            echo
+            echo "清理后文件列表："
+            ls -la
+          fi
+
+          echo
+          echo "========================================"
+          echo "检查完成"
+          echo "========================================"
 
 
       # ============================================================
