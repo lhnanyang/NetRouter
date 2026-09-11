@@ -292,6 +292,37 @@ jobs:
           echo
           echo "Feeds 更新完成"
 
+      # ============================================================
+      # 10.5 添加 iStore 软件源
+      # ============================================================
+      - name: 🛒 添加 iStore 软件源
+        working-directory: /mnt/openwrt/src
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "添加 iStore 软件源"
+          echo "========================================"
+
+          if ! grep -q 'istore' feeds.conf.default; then
+            echo 'src-git istore https://github.com/linkease/istore;main' \
+              >> feeds.conf.default
+            echo "已写入 istore feed"
+          else
+            echo "istore feed 已存在，跳过"
+          fi
+
+          ./scripts/feeds update istore
+          ./scripts/feeds install -d y -p istore luci-app-store
+
+          echo
+          echo "========================================"
+          echo "iStore 安装完成"
+          echo "========================================"
+
+          ls -d package/feeds/istore/luci-app-store 2>/dev/null \
+            && echo "✅ luci-app-store 已就位" \
+            || echo "⚠️ 未找到 luci-app-store"
 
       # ============================================================
       # 11. 使用 config.seed
