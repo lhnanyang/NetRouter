@@ -1,0 +1,593 @@
+name: 编译 OpenWrt Raspberry Pi 5
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # 每天北京时间 10:00 自动编译
+    # GitHub Actions 使用 UTC
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  TZ: Asia/Shanghai
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      # ============================================================
+      # Checkout
+      # ============================================================
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+
+      # ============================================================
+      # 设置构建时间
+      # ============================================================
+
+      - name: 设置构建时间
+        run: |
+          echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+
+
+      # ============================================================
+      # 清理磁盘
+      # ============================================================
+
+      - name: 清理磁盘空间
+        run: |
+          echo "========== 磁盘空间 =========="
+          df -h
+
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          sudo docker system prune -af || true
+
+          echo "========== 清理后 =========="
+          df -h
+
+
+      # ============================================================
+      # 创建 Swap
+      # ============================================================
+
+      - name: 创建 4GB Swap
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+
+          sudo fallocate -l 4G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+          free -h
+
+
+      # ============================================================
+      # 安装依赖
+      # ============================================================
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            g++ \
+            gawk \
+            gcc \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-setuptools \
+            python3-venv \
+            rsync \
+            unzip \
+            zlib1g-dev \
+            file \
+            wget \
+            curl \
+            jq \
+            time \
+            ccache \
+            subversion \
+            xsltproc \
+            swig \
+            texinfo \
+            uglifyjs \
+            upx-ucl \
+            libelf-dev \
+            libdw-dev \
+            libxml2-utils \
+            device-tree-compiler
+
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+
+          python3 --version
+          gcc --version
+          git --version
+
+
+      # ============================================================
+      # 创建工作目录
+      # ============================================================
+
+      - name: 创建工作目录
+        run: |
+          sudo mkdir -p /mnt/openwrt
+          sudo chown -R $USER:$USER /mnt/openwrt
+
+          echo "工作目录："
+          ls -la /mnt/openwrt
+
+
+      # ============================================================
+      # 同步自定义文件
+      # ============================================================
+
+      - name: 同步自定义文件
+        run: |
+          echo "========== 当前仓库 =========="
+          ls -la
+
+          echo "========== 同步文件 =========="
+
+          rsync -av \
+            --exclude='.git' \
+            --exclude='bin' \
+            --exclude='output' \
+            ./ /mnt/openwrt/
+
+          echo "========== 检查关键文件 =========="
+
+          test -f /mnt/openwrt/config.seed.rpi5
+          test -f /mnt/openwrt/diy.sh
+
+          echo "config.seed.rpi5:"
+          ls -lh /mnt/openwrt/config.seed.rpi5
+
+          echo "diy.sh:"
+          ls -lh /mnt/openwrt/diy.sh
+
+
+      # ============================================================
+      # 获取最新稳定版 OpenWrt
+      # ============================================================
+
+      - name: 获取最新稳定版 OpenWrt
+        working-directory: /mnt/openwrt
+        run: |
+
+          echo "========== 获取最新稳定版本 =========="
+
+          RELEASE_JSON=$(curl -fsSL \
+            https://api.github.com/repos/openwrt/openwrt/releases/latest)
+
+          VERSION=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "无法获取 OpenWrt 最新版本"
+            exit 1
+          fi
+
+          echo "OpenWrt 最新稳定版本：$VERSION"
+
+          echo "OPENWRT_VERSION=$VERSION" >> $GITHUB_ENV
+
+
+      # ============================================================
+      # 下载 OpenWrt
+      # ============================================================
+
+      - name: 下载 OpenWrt 源码
+        working-directory: /mnt/openwrt
+        run: |
+
+          echo "========== 下载 OpenWrt =========="
+
+          rm -rf openwrt
+
+          git clone \
+            --depth=1 \
+            --branch "$OPENWRT_VERSION" \
+            https://github.com/openwrt/openwrt.git \
+            openwrt
+
+          cd openwrt
+
+          echo "OpenWrt 版本："
+          git describe --tags --always
+
+          echo "提交："
+          git rev-parse HEAD
+
+
+      # ============================================================
+      # 更新官方 Feed
+      # ============================================================
+
+      - name: 更新官方 Feed
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 更新 feeds =========="
+
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+
+      # ============================================================
+      # 添加 iStore Feed
+      # ============================================================
+
+      - name: 添加 iStore Feed
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 添加 iStore =========="
+
+          if ! grep -q '^src-git istore ' feeds.conf.default 2>/dev/null; then
+            echo 'src-git istore https://github.com/linkease/istore;main' \
+              >> feeds.conf.default
+          fi
+
+          ./scripts/feeds update istore
+          ./scripts/feeds install -a -p istore
+
+          echo "========== 检查 iStore =========="
+
+          ./scripts/feeds list | grep -i istore || true
+
+          find feeds/istore -maxdepth 2 \
+            -iname '*luci-app-store*' \
+            -print || true
+
+
+      # ============================================================
+      # 使用 Raspberry Pi 5 配置
+      # ============================================================
+
+      - name: 设置 Raspberry Pi 5 配置
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 使用 config.seed.rpi5 =========="
+
+          cp /mnt/openwrt/config.seed.rpi5 .config
+
+          echo "========== 目标配置 =========="
+
+          grep '^CONFIG_TARGET' .config || true
+
+          echo "========== 关键插件 =========="
+
+          grep -E \
+            'luci-theme-argon|luci-app-argon|luci-app-store|luci-app-openclash' \
+            .config || true
+
+
+      # ============================================================
+      # 执行 DIY
+      # ============================================================
+
+      - name: 执行 diy.sh
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 执行 diy.sh =========="
+
+          chmod +x /mnt/openwrt/diy.sh
+
+          /mnt/openwrt/diy.sh
+
+          echo "========== diy.sh 执行完成 =========="
+
+
+      # ============================================================
+      # 写入构建信息
+      # ============================================================
+
+      - name: 写入构建信息
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          cat > build-info.txt <<EOF
+          OpenWrt Version: ${OPENWRT_VERSION}
+          Target: bcm27xx
+          Subtarget: bcm2712
+          Device: rpi-5
+          Build Date: ${BUILD_DATE}
+          Build Time: ${BUILD_TIME}
+          Git Commit: $(git rev-parse HEAD)
+          EOF
+
+          cat build-info.txt
+
+
+      # ============================================================
+      # Defconfig
+      # ============================================================
+
+      - name: 生成最终配置
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== make defconfig =========="
+
+          make defconfig
+
+          echo "========== Raspberry Pi 5 Target =========="
+
+          grep '^CONFIG_TARGET' .config || true
+
+          echo "========== 主要软件包 =========="
+
+          grep -E \
+            'CONFIG_PACKAGE_(luci|luci-theme-argon|luci-app-argon-config|luci-app-store|luci-app-openclash|dnsmasq-full|curl|wget|htop|lsblk|kmod-r8169)' \
+            .config || true
+
+
+      # ============================================================
+      # 下载源码包
+      # ============================================================
+
+      - name: 下载源码包
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 下载编译依赖 =========="
+
+          make download -j$(nproc) V=s
+
+
+      # ============================================================
+      # 编译 Raspberry Pi 5
+      # ============================================================
+
+      - name: 编译 Raspberry Pi 5
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "================================================"
+          echo "开始编译 Raspberry Pi 5"
+          echo "================================================"
+
+          echo "Target:"
+          grep '^CONFIG_TARGET_bcm27xx' .config || true
+
+          echo "CPU:"
+          nproc
+
+          echo "内存:"
+          free -h
+
+          echo "磁盘:"
+          df -h
+
+          echo "================================================"
+          echo "开始多线程编译"
+          echo "================================================"
+
+          make -j$(nproc) V=s || {
+
+            echo "================================================"
+            echo "多线程编译失败"
+            echo "开始单线程重新编译"
+            echo "================================================"
+
+            make -j1 V=s
+          }
+
+
+      # ============================================================
+      # 检查输出
+      # ============================================================
+
+      - name: 检查编译结果
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== Target 输出目录 =========="
+
+          ls -lah bin/targets/bcm27xx/bcm2712/ || true
+
+          echo "========== 所有镜像 =========="
+
+          find bin/targets/bcm27xx/bcm2712/ \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            | sort
+
+
+      # ============================================================
+      # 整理固件
+      # ============================================================
+
+      - name: 整理固件
+        working-directory: /mnt/openwrt/openwrt
+        run: |
+
+          echo "========== 整理 Raspberry Pi 5 固件 =========="
+
+          rm -rf /mnt/openwrt/output
+          mkdir -p /mnt/openwrt/output/firmware
+
+          cp -a \
+            bin/targets/bcm27xx/bcm2712/* \
+            /mnt/openwrt/output/firmware/
+
+          cp build-info.txt \
+            /mnt/openwrt/output/firmware/
+
+          echo "========== 固件文件 =========="
+
+          ls -lah /mnt/openwrt/output/firmware/
+
+
+      # ============================================================
+      # 生成 SHA256
+      # ============================================================
+
+      - name: 生成 SHA256
+        working-directory: /mnt/openwrt/output/firmware
+        run: |
+
+          echo "========== 生成 SHA256 =========="
+
+          rm -f sha256sums
+
+          sha256sum \
+            *.img \
+            *.img.gz \
+            *.tar.gz \
+            *.bin \
+            2>/dev/null \
+            > sha256sums || true
+
+          if [ ! -s sha256sums ]; then
+            sha256sum * \
+              2>/dev/null \
+              | grep -v 'sha256sums$' \
+              > sha256sums || true
+          fi
+
+          echo "========== SHA256 =========="
+
+          cat sha256sums
+
+
+      # ============================================================
+      # 删除重复/无用文件
+      # ============================================================
+
+      - name: 清理重复文件
+        working-directory: /mnt/openwrt/output/firmware
+        run: |
+
+          echo "========== 固件最终列表 =========="
+
+          find . -maxdepth 1 -type f \
+            -printf '%f\n' \
+            | sort
+
+
+      # ============================================================
+      # 构建统计
+      # ============================================================
+
+      - name: 构建统计
+        run: |
+
+          echo "================================================"
+          echo "Raspberry Pi 5 OpenWrt 构建完成"
+          echo "================================================"
+
+          echo "OpenWrt:"
+          echo "$OPENWRT_VERSION"
+
+          echo "Target:"
+          echo "bcm27xx/bcm2712"
+
+          echo "Device:"
+          echo "rpi-5"
+
+          echo "Build Date:"
+          echo "$BUILD_TIME"
+
+          echo "================================================"
+          echo "固件文件"
+          echo "================================================"
+
+          ls -lah /mnt/openwrt/output/firmware/
+
+          echo "================================================"
+          echo "磁盘空间"
+          echo "================================================"
+
+          df -h
+
+
+      # ============================================================
+      # 上传 Artifact
+      # ============================================================
+
+      - name: 上传 Raspberry Pi 5 固件
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-RaspberryPi5-${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}
+          path: /mnt/openwrt/output/firmware/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+
+      # ============================================================
+      # 创建 GitHub Release
+      # ============================================================
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: rpi5-${{ env.OPENWRT_VERSION }}-${{ env.BUILD_DATE }}
+          name: OpenWrt Raspberry Pi 5 ${{ env.OPENWRT_VERSION }} ${{ env.BUILD_DATE }}
+          body: |
+            ## OpenWrt Raspberry Pi 5
+
+            - OpenWrt: ${{ env.OPENWRT_VERSION }}
+            - Target: bcm27xx
+            - Subtarget: bcm2712
+            - Device: rpi-5
+            - Build Date: ${{ env.BUILD_TIME }}
+
+            ### Included
+
+            - LuCI
+            - LuCI SSL
+            - Argon Theme
+            - iStore
+            - OpenClash
+            - USB Storage
+            - ext4 / vfat / ntfs
+            - Raspberry Pi 5 Ethernet
+            - 常用网络工具
+
+            ### Disabled
+
+            - Passwall
+            - Passwall2
+            - SSR Plus
+            - Homeproxy
+            - Xray
+            - Trojan
+            - Trojan-Go
+            - NaiveProxy
+            - Docker
+
+          files: |
+            /mnt/openwrt/output/firmware/*
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
