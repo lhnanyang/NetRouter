@@ -1,0 +1,113 @@
+CONFIG_TARGET_bcm27xx=y
+CONFIG_TARGET_bcm27xx_bcm2712=y
+CONFIG_TARGET_bcm27xx_bcm2712_DEVICE_rpi-5=y
+
+# ============================================================
+# LuCI
+# ============================================================
+
+CONFIG_PACKAGE_luci=y
+CONFIG_PACKAGE_luci-ssl-openssl=y
+
+
+# ============================================================
+# Argon 主题
+# ============================================================
+
+CONFIG_PACKAGE_luci-theme-argon=y
+CONFIG_PACKAGE_luci-app-argon-config=y
+
+
+# ============================================================
+# iStore 应用商店
+# ============================================================
+
+CONFIG_PACKAGE_luci-app-store=y
+
+
+# ============================================================
+# 第三方代理插件
+# ============================================================
+
+CONFIG_PACKAGE_luci-app-passwall=n
+CONFIG_PACKAGE_luci-app-passwall2=n
+CONFIG_PACKAGE_luci-app-ssr-plus=n
+CONFIG_PACKAGE_luci-app-openclash=y
+CONFIG_PACKAGE_luci-app-homeproxy=n
+
+CONFIG_PACKAGE_xray-core=n
+CONFIG_PACKAGE_trojan=n
+CONFIG_PACKAGE_trojan-go=n
+CONFIG_PACKAGE_naiveproxy=n
+CONFIG_PACKAGE_v2ray-geoip=n
+CONFIG_PACKAGE_v2ray-geosite=n
+
+
+# ============================================================
+# Docker
+# ============================================================
+
+CONFIG_PACKAGE_dockerd=n
+CONFIG_PACKAGE_luci-app-dockerman=n
+CONFIG_PACKAGE_kmod-fs-btrfs=n
+CONFIG_PACKAGE_kmod-br-netfilter=n
+CONFIG_PACKAGE_kmod-ikconfig=n
+CONFIG_PACKAGE_kmod-veth=n
+CONFIG_PACKAGE_kmod-dummy=n
+CONFIG_PACKAGE_kmod-macvlan=n
+
+
+# ============================================================
+# 常用网络工具
+# ============================================================
+
+CONFIG_PACKAGE_iptables-nft=y
+CONFIG_PACKAGE_dnsmasq-full=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_wget=y
+CONFIG_PACKAGE_htop=y
+CONFIG_PACKAGE_lsblk=y
+
+
+# ============================================================
+# USB
+# ============================================================
+
+CONFIG_PACKAGE_kmod-usb-core=y
+CONFIG_PACKAGE_kmod-usb2=y
+CONFIG_PACKAGE_kmod-usb3=y
+CONFIG_PACKAGE_kmod-usb-storage=y
+CONFIG_PACKAGE_kmod-usb-storage-uas=y
+
+
+# ============================================================
+# 文件系统
+# ============================================================
+
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+CONFIG_PACKAGE_kmod-fs-ntfs=y
+
+
+# ============================================================
+# Raspberry Pi 5 网卡
+# ============================================================
+
+CONFIG_PACKAGE_kmod-r8169=y
+
+
+# ============================================================
+# Raspberry Pi / BCM2712
+# ============================================================
+
+CONFIG_PACKAGE_bcm27xx-utils=y
+
+
+# ============================================================
+# 其他常用
+# ============================================================
+
+CONFIG_PACKAGE_block-mount=y
+CONFIG_PACKAGE_swconfig=y
+CONFIG_PACKAGE_kmod-button-hotplug=y
+CONFIG_PACKAGE_kmod-hwmon-core=y
