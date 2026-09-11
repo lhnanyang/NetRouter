@@ -571,7 +571,7 @@ jobs:
       # 22. 发布到 GitHub Releases
       # ============================================================
       - name: 🚀 发布到 GitHub Releases
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3   # 升级到 v3，修复并发问题并支持 Node 24
         with:
           tag_name: OpenWrt-x86_64-${{ steps.openwrt_release.outputs.tag }}-${{ env.BUILD_DATE }}
           name: OpenWrt x86_64 ${{ steps.openwrt_release.outputs.tag }} (${{ env.BUILD_DATE }})
@@ -583,7 +583,10 @@ jobs:
             Commit：${{ github.sha }}
           files: |
             /mnt/openwrt/output/firmware/*
+          overwrite_files: true      # 允许覆盖同名文件，方便重跑
+          preserve_order: true       # 关键！按顺序上传，避免并发竞争
+          fail_on_unmatched_files: true  # 找不到文件时明确失败
           draft: false
           prerelease: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 使用内置 Token
