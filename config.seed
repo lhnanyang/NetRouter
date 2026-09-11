@@ -11,13 +11,21 @@ CONFIG_PACKAGE_luci-ssl-openssl=y
 
 
 # ============================================================
+# Argon 主题
+# ============================================================
+
+CONFIG_PACKAGE_luci-theme-argon=y
+CONFIG_PACKAGE_luci-app-argon-config=y
+
+
+# ============================================================
 # 第三方代理插件全部关闭
 # ============================================================
 
 CONFIG_PACKAGE_luci-app-passwall=n
 CONFIG_PACKAGE_luci-app-passwall2=n
 CONFIG_PACKAGE_luci-app-ssr-plus=n
-CONFIG_PACKAGE_luci-app-openclash=n
+CONFIG_PACKAGE_luci-app-openclash=y
 CONFIG_PACKAGE_luci-app-homeproxy=n
 
 CONFIG_PACKAGE_xray-core=n
