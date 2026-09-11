@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# Passwall
-git clone https://github.com/xiaorouji/openwrt-passwall.git openwrt/package/passwall
-#git clone https://github.com/xiaorouji/openwrt-passwall2.git openwrt/package/passwall2
+set -e
 
-# SSR+ / Xray
-#git clone https://github.com/fw876/helloworld.git openwrt/package/helloworld
+OPENWRT_DIR="$(cd "$(dirname "$0")/src" && pwd)"
+
+echo "OpenWrt source: $OPENWRT_DIR"
 
 # OpenClash
-git clone https://github.com/vernesong/OpenClash.git openwrt/package/openclash
+rm -rf "$OPENWRT_DIR/package/openclash"
 
-# Docker
-#git clone https://github.com/lisaac/luci-app-dockerman.git openwrt/package/dockerman
+git clone \
+  --depth=1 \
+  https://github.com/vernesong/OpenClash.git \
+  "$OPENWRT_DIR/package/openclash"
 
-# Homeproxy
-#git clone https://github.com/immortalwrt/homeproxy.git openwrt/package/homeproxy
+echo "OpenClash added successfully."
